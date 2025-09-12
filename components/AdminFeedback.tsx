@@ -1,0 +1,367 @@
+import React, { useEffect, useState } from 'react';
+import { FaEdit, FaTrash, FaSave, FaTimes } from 'react-icons/fa';
+import { ENDPOINTS } from '../constants';
+
+const AdminFeedback: React.FC = () => {
+  const [feedback, setFeedback] = useState([]);
+  const [error, setError] = useState('');
+  const [editingId, setEditingId] = useState<string|null>(null);
+  const [editingRating, setEditingRating] = useState<number>(0);
+  const [detailsId, setDetailsId] = useState<string|null>(null);
+  const [questions, setQuestions] = useState<{[key: string]: any}>({});
+
+  const fetchFeedback = async () => {
+    setError('');
+    try {
+      // Only fetch feedback here. Questions are fetched on-demand per-site when viewing details.
+      const token = localStorage.getItem('canteenAdminJWT');
+      if (!token) {
+        throw new Error('Authentication required. Please login again.');
+      }
+
+      const res = await fetch(ENDPOINTS.ADMIN_FEEDBACK, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to parse response' }));
+        throw new Error(errorData.error || `Feedback API Error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      
+  // Ensure we have an array of feedback
+  const feedbackArray = Array.isArray(data) ? data : 
+          (data.feedback ? (Array.isArray(data.feedback) ? data.feedback : [data.feedback]) : []);
+
+  // Process each feedback entry
+  const processed = feedbackArray.map(fb => {
+        if (!fb || !fb.site) return null;
+
+        let overallRating = 0;
+        let responses = [];
+  const siteQuestions = questions[fb.site] || [];
+
+        // Handle responses array (responses may be JSON string in DB)
+        let rawResponses: any = fb.responses;
+        if (typeof rawResponses === 'string') {
+          try {
+            rawResponses = JSON.parse(rawResponses);
+          } catch (e) {
+            rawResponses = [];
+          }
+        }
+
+        if (Array.isArray(rawResponses) && rawResponses.length > 0) {
+          responses = rawResponses.map(r => {
+            // normalize possible id keys
+            const qid = r.question_id ?? r.questionId ?? r.id ?? r.question;
+            const questionData = siteQuestions.find(q => String(q.id) === String(qid)) || {};
+            return {
+              ...r,
+              question_id: String(qid),
+              question_text: questionData.question_text || r.question_text || r.text || 'Unknown Question',
+              emoji: questionData.emoji || r.emoji || '😐'
+            };
+          });
+
+          // Calculate overall rating from valid responses
+          const validRatings = responses.filter(r => typeof r.rating === 'number');
+          if (validRatings.length > 0) {
+            overallRating = validRatings.reduce((sum, r) => sum + r.rating, 0) / validRatings.length;
+            overallRating = Math.round(overallRating * 100) / 100;
+          }
+        }
+        // Handle single rating
+        else if (typeof fb.rating === 'number') {
+          overallRating = fb.rating;
+          if (fb.question_id) {
+            const questionData = siteQuestions.find(q => String(q.id) === String(fb.question_id)) || {};
+            responses = [{
+              question_id: fb.question_id,
+              rating: fb.rating,
+              question_text: questionData.question_text || 'Unknown Question',
+              emoji: questionData.emoji || '😐'
+            }];
+          }
+        }
+    
+    return { 
+      ...fb,
+      responses,
+      overallRating,
+      timestamp: fb.timestamp || fb.created_at || Date.now(),
+      site: fb.site || 'Unknown Site',
+      canteen_id: fb.canteen_id || fb.canteen || 'Unknown Canteen'
+    };
+  }).filter(Boolean) // Remove null entries
+    .sort((a, b) => { // Sort by timestamp
+      const dateA = new Date(a.timestamp);
+      const dateB = new Date(b.timestamp);
+      return dateB.getTime() - dateA.getTime();
+    });
+
+  setFeedback(processed);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  // Fetch questions for a specific site on demand
+  const loadQuestionsForSite = async (site: string) => {
+    if (!site) return;
+    // already loaded
+    if (questions[site]) return;
+    try {
+      const token = localStorage.getItem('canteenAdminJWT') || '';
+      const url = `${ENDPOINTS.QUESTIONS}?site=${encodeURIComponent(site)}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'application/json'
+        }
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const msg = errBody.error || `Questions API returned ${res.status}`;
+        console.warn('Failed to load questions for site', site, msg);
+        setError(`Failed to load questions for ${site}: ${msg}`);
+        setQuestions(prev => ({ ...prev, [site]: [] }));
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      const arr = Array.isArray(body) ? body : (body.questions || []);
+      setQuestions(prev => ({ ...prev, [site]: arr }));
+    } catch (err) {
+      console.error('Error loading questions for site', site, err);
+      setQuestions(prev => ({ ...prev, [site]: [] }));
+    }
+  };
+
+  useEffect(() => {
+    fetchFeedback();
+  }, []);
+
+  const handleEdit = (id: string, rating: number) => {
+    setEditingId(id);
+    setEditingRating(rating);
+  };
+
+  const handleSave = async (id: string) => {
+    setError('');
+    try {
+  const res = await fetch(`${ENDPOINTS.ADMIN_FEEDBACK}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating: editingRating })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update feedback');
+      setEditingId(null);
+      setEditingRating(0);
+      fetchFeedback();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setError('');
+    try {
+      const token = localStorage.getItem('canteenAdminJWT');
+      if (!token) {
+        throw new Error('Authentication required. Please login again.');
+      }
+
+      const res = await fetch(`${ENDPOINTS.ADMIN_FEEDBACK}/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to parse response' }));
+        throw new Error(errorData.error || `Failed to delete feedback: ${res.status}`);
+      }
+
+      await fetchFeedback(); // Refresh the feedback list
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      setError(err.message || 'Failed to delete feedback');
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto bg-white p-8 rounded-2xl shadow-2xl mt-10">
+      <div className="bg-gradient-to-r from-primary-600 to-primary-400 rounded-xl py-2 mb-4 shadow flex items-center justify-between px-4">
+  <h2 className="text-xl font-bold text-white">Manage Feedback Submissions</h2>
+        <span className="text-white font-semibold text-base">Total: {feedback.length}</span>
+        <button
+          className="bg-green-600 text-white px-3 py-1 rounded font-bold ml-4 text-xs"
+          onClick={() => {
+            let csvContent = 'data:text/csv;charset=utf-8,';
+            csvContent += 'ID,Timestamp,Site,Canteen,Username,OverallRating\r\n';
+            feedback.forEach(fb => {
+              const row = [
+                fb.id,
+                new Date(fb.timestamp).toLocaleString(),
+                fb.site,
+                fb.canteen_id,
+                fb.username || '',
+                fb.overallRating
+              ];
+              csvContent += row.join(',') + '\r\n';
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', 'feedback_submissions.csv');
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }}
+        >Export CSV</button>
+      </div>
+      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse mb-6 text-sm">
+          <thead>
+            <tr className="bg-gray-100">
+              <th className="p-3 border">Timestamp</th>
+              <th className="p-3 border">Site</th>
+              <th className="p-3 border">Canteen</th>
+              <th className="p-3 border">Username</th>
+              <th className="p-3 border">Overall Rating</th>
+              <th className="p-3 border">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {feedback.map((fb: any, idx: number) => (
+              <tr key={fb.id} className={"transition-colors duration-200 " + (idx % 2 === 0 ? "bg-white" : "bg-gray-50") + " hover:bg-primary-50"}>
+                <td className="p-3 border">{new Date(fb.timestamp).toLocaleString()}</td>
+                <td className="p-3 border">{fb.site}</td>
+                <td className="p-3 border">{fb.canteen_id}</td>
+                <td className="p-3 border">{fb.username || <span style={{ color: '#aaa' }}>-</span>}</td>
+                <td className="p-3 border">
+                  <span className="font-bold text-primary-700">{fb.overallRating}</span>
+                </td>
+                <td className="p-3 border">
+                  <div className="flex gap-2">
+                    <button
+                      className="bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded-md flex items-center gap-1 shadow text-xs"
+                      onClick={async () => {
+                        await loadQuestionsForSite(fb.site);
+                        setDetailsId(fb.id);
+                      }}
+                    >
+                      View Details
+                    </button>
+                    <button onClick={() => handleDelete(fb.id)} className="bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded-md flex items-center gap-1 shadow text-xs">
+                      <span className="icon"><FaTrash /></span> Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {feedback.length === 0 && <p className="text-gray-500 text-center">No feedback submissions found.</p>}
+      {/* Modal for question-wise ratings */}
+      {detailsId && (() => {
+        const fb = feedback.find((f: any) => f.id === detailsId);
+        if (!fb) return null;
+
+        const siteQuestions = questions[fb.site] || [];
+        const responsesMap = (fb.responses || []).reduce((acc, rr) => {
+          const r = rr || {};
+          const qid = String(r.question_id ?? r.questionId ?? r.id ?? r.question ?? '');
+          if (qid) acc[qid] = r;
+          return acc;
+        }, {} as Record<string, any>);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+            <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md relative max-h-[90vh] overflow-y-auto">
+              <button
+                className="absolute top-2 right-2 text-gray-600 hover:text-gray-900 text-xl font-bold"
+                onClick={() => setDetailsId(null)}
+                aria-label="Close"
+              >&times;</button>
+              <h3 className="text-lg font-bold mb-4 text-primary-700">Feedback Details</h3>
+              <div className="mb-4">
+                <p className="text-sm text-gray-600">Submitted on: {new Date(fb.timestamp).toLocaleString()}</p>
+                <p className="text-sm text-gray-600">Site: {fb.site}</p>
+                <p className="text-sm text-gray-600">Canteen: {fb.canteen_id}</p>
+                {fb.username && <p className="text-sm text-gray-600">User: {fb.username}</p>}
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-semibold text-gray-700 mb-3">Question-wise Ratings</h4>
+                <ul className="space-y-4">
+                  {siteQuestions.map((q: any) => {
+                    const response = responsesMap[q.id];
+                    const rating = response ? response.rating : undefined;
+                    const emoji = q.emoji || (rating ? (
+                      rating >= 4 ? '😀' : rating === 3 ? '🙂' : rating === 2 ? '�' : '😞'
+                    ) : '❓');
+
+                    const ratingText = (() => {
+                      switch(rating) {
+                        case 4: return 'Very Good';
+                        case 3: return 'Good';
+                        case 2: return 'Needs Improvement';
+                        case 1: return 'Poor';
+                        default: return 'Not Answered';
+                      }
+                    })();
+
+                    // compute width percent using detected max scale (4 if max rating <=4 else 5)
+                    const maxScale = (rating && rating <= 4) ? 4 : 5;
+                    const percent = rating ? Math.round((Number(rating) / maxScale) * 100) : 0;
+
+                    return (
+                      <li key={q.id} className="p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
+                        <p className="font-medium text-gray-800 mb-2">{q.question_text}</p>
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl select-none">{emoji}</span>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-gray-200 rounded-full">
+                                <div
+                                  className="h-full bg-primary-500 rounded-full"
+                                  style={{ width: `${percent}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-sm font-medium text-primary-700 min-w-[90px]">
+                                {ratingText}{rating !== undefined ? ` (${rating})` : ''}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {siteQuestions.length === 0 && (
+                    <li className="text-gray-500 text-center py-4">No questions found for this site.</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+};
+
+export default AdminFeedback;

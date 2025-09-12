@@ -1,0 +1,426 @@
+import React, { useState, useEffect } from 'react';
+import { FeedbackSubmission, Question } from '../types';
+import { RATINGS, ENDPOINTS } from '../constants';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
+const FeedbackStatistics = () => {
+  const [feedbackData, setFeedbackData] = useState<FeedbackSubmission[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [selectedSite, setSelectedSite] = useState<string>('All Sites');
+  const [sites, setSites] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Fetch sites
+    fetch(ENDPOINTS.SITES)
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data.sites)) {
+          const validSites = data.sites.filter(site => 
+            site && 
+            typeof site.location === 'string' && 
+            typeof site.branch_location === 'string'
+          );
+          setSites(validSites);
+        }
+      })
+      .catch(err => console.error('Error fetching sites:', err));
+  }, []);
+
+  useEffect(() => {
+    // Fetch feedback data
+    const endpoint = selectedSite !== 'All Sites' 
+      ? `${ENDPOINTS.ADMIN_FEEDBACK}?site=${encodeURIComponent(selectedSite)}` 
+      : ENDPOINTS.ADMIN_FEEDBACK;
+
+    fetch(endpoint, {
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('canteenAdminJWT')}`
+      }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && (Array.isArray(data.feedback) || Array.isArray(data))) {
+          const feedbackArray = Array.isArray(data.feedback) ? data.feedback : data;
+          const processedFeedback = feedbackArray.map(fb => ({
+            ...fb,
+            responses: Array.isArray(fb.responses) ? fb.responses : [{
+              rating: fb.rating,
+              question_id: fb.question_id
+            }],
+            timestamp: fb.timestamp || Date.now()
+          })).filter(fb => fb && typeof fb.site === 'string');
+          setFeedbackData(processedFeedback);
+        }
+      })
+      .catch(err => console.error('Error fetching feedback:', err));
+  }, [selectedSite]);
+
+  useEffect(() => {
+    // Fetch questions
+    const endpoint = selectedSite !== 'All Sites'
+      ? `${ENDPOINTS.QUESTIONS}?site=${encodeURIComponent(selectedSite)}`
+      : ENDPOINTS.QUESTIONS;
+
+    fetch(endpoint, {
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('canteenAdminJWT')}`
+      }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data && Array.isArray(data.questions)) {
+          setQuestions(data.questions.map(q => ({
+            id: q.id,
+            text: q.question_text || q.text
+          })));
+        }
+      })
+      .catch(err => console.error('Error fetching questions:', err));
+  }, [selectedSite]);
+
+  const calculateStats = (questionId: number) => {
+    let ratings = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    let totalResponses = 0;
+    let totalRating = 0;
+
+    feedbackData.forEach(fb => {
+      if (Array.isArray(fb.responses)) {
+        const response = fb.responses.find(r => r.question_id === questionId);
+        if (response && response.rating) {
+          ratings[response.rating] = (ratings[response.rating] || 0) + 1;
+          totalResponses++;
+          totalRating += response.rating;
+        }
+      }
+    });
+
+    const avgRating = totalResponses > 0 ? (totalRating / totalResponses).toFixed(2) : 'N/A';
+    return { ratings, totalResponses, avgRating };
+  };
+
+  interface SiteStats {
+    [siteId: string]: {
+      name: string;
+      ratings: { [key: number]: number };
+      totalResponses: number;
+      avgRating: number | string;
+    };
+  }
+
+  const calculateSiteStats = () => {
+    const siteStats: SiteStats = {};
+    
+    sites.forEach(site => {
+      siteStats[site.location] = {
+        name: site.location,
+        ratings: { 1: 0, 2: 0, 3: 0, 4: 0 },
+        totalResponses: 0,
+        avgRating: 'N/A'
+      };
+    });
+
+    feedbackData.forEach(fb => {
+      if (fb.site && fb.responses) {
+        const siteStat = siteStats[fb.site];
+        if (siteStat) {
+          fb.responses.forEach(response => {
+            if (response.rating) {
+              siteStat.ratings[response.rating] = (siteStat.ratings[response.rating] || 0) + 1;
+              siteStat.totalResponses++;
+            }
+          });
+        }
+      }
+    });
+
+    Object.values(siteStats).forEach(site => {
+      let totalRating = 0;
+      Object.entries(site.ratings).forEach(([rating, count]) => {
+        totalRating += Number(rating) * count;
+      });
+      site.avgRating = site.totalResponses > 0 
+        ? (totalRating / site.totalResponses).toFixed(2) 
+        : 'N/A';
+    });
+
+    return siteStats;
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-3 sm:p-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-lg shadow-sm p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
+            <h1 className="text-xl sm:text-2xl font-medium text-gray-800">Feedback Statistics</h1>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-sm font-medium text-gray-600">Site:</span>
+              <select 
+                value={selectedSite} 
+                onChange={e => setSelectedSite(e.target.value)}
+                className="w-full sm:w-[160px] px-2 py-1.5 rounded-md border border-gray-300 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 font-medium text-gray-700"
+                style={{ WebkitAppearance: 'none', appearance: 'none', backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1rem', paddingRight: '2rem' }}
+              >
+                <option value="All Sites">All Sites</option>
+                {sites.map((site, idx) => (
+                  <option key={site.location + '-' + idx} value={site.location}>
+                    {site.location}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {questions.length > 0 ? (
+            <>
+              <div className="overflow-x-auto mb-8">
+                <table className="min-w-full border rounded-lg overflow-hidden shadow-sm">
+                  <thead>
+                    <tr>
+                      <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b min-w-[200px] sm:min-w-[250px] bg-gray-50">
+                        Feedback Questions
+                      </th>
+                      {RATINGS.map(rating => (
+                        <th key={rating.level} className="px-2 py-2.5 text-center border-b bg-gray-50 min-w-[70px] sm:min-w-[80px]">
+                          <div className="flex flex-col items-center justify-center">
+                            <span className="text-lg sm:text-xl mb-0.5">{rating.emoji}</span>
+                            <span className="text-[10px] sm:text-xs font-medium text-gray-600">{rating.label}</span>
+                          </div>
+                        </th>
+                      ))}
+                      <th className="px-2 py-2.5 text-center border-b bg-blue-50/60 min-w-[70px] sm:min-w-[80px]">
+                        <div className="flex flex-col items-center">
+                          <span className="text-base sm:text-lg">📊</span>
+                          <span className="text-[10px] sm:text-xs font-medium text-blue-700">Average</span>
+                        </div>
+                      </th>
+                      <th className="px-2 py-2.5 text-center border-b bg-green-50/60 min-w-[70px] sm:min-w-[80px]">
+                        <div className="flex flex-col items-center">
+                          <span className="text-base sm:text-lg">📈</span>
+                          <span className="text-[10px] sm:text-xs font-medium text-green-700">Total</span>
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {questions.map((question, qIdx) => {
+                      const { ratings, totalResponses, avgRating } = calculateStats(question.id);
+                      return (
+                        <tr key={qIdx} className="hover:bg-gray-50">
+                          <td className="px-3 sm:px-4 py-2.5 whitespace-normal text-xs sm:text-sm text-gray-900 border-r">
+                            <div className="flex items-start">
+                              <span className="font-semibold text-primary-600 mr-1">{qIdx + 1}.</span>
+                              <span className="font-medium">{question.text}</span>
+                            </div>
+                          </td>
+                          {[4, 3, 2, 1].map(level => {
+                            const count = ratings[level] || 0;
+                            const percentage = totalResponses > 0 
+                              ? ((count / totalResponses) * 100).toFixed(1) 
+                              : '0';
+                            const ratingInfo = RATINGS.find(r => r.level === level);
+                            return (
+                              <td key={level} className="px-2 py-2.5 text-center border-r hover:bg-gray-50/50">
+                                <div className="flex flex-col items-center">
+                                  <div className={`text-xs sm:text-sm font-semibold ${ratingInfo?.color || 'text-gray-700'}`}>
+                                    {percentage}%
+                                  </div>
+                                  <div className="text-[10px] sm:text-xs text-gray-500">
+                                    ({count})
+                                  </div>
+                                </div>
+                              </td>
+                            );
+                          })}
+                          <td className="px-2 py-2.5 text-center border-r bg-blue-50/60 hover:bg-blue-50">
+                            <div className={`text-xs sm:text-sm font-bold ${
+                              avgRating === 'N/A' ? 'text-gray-500' :
+                              parseFloat(avgRating) >= 3.5 ? 'text-green-600' :
+                              parseFloat(avgRating) >= 2.5 ? 'text-yellow-600' :
+                              parseFloat(avgRating) >= 1.5 ? 'text-orange-600' :
+                              'text-red-600'
+                            }`}>
+                              {avgRating}
+                            </div>
+                            <div className="text-[10px] sm:text-xs text-blue-600 font-medium mt-0.5">
+                              avg
+                            </div>
+                          </td>
+                          <td className="px-2 py-2.5 text-center border-r bg-green-50/60 hover:bg-green-50">
+                            <div className="text-xs sm:text-sm font-bold text-green-600">
+                              {totalResponses}
+                            </div>
+                            <div className="text-[10px] sm:text-xs text-green-600 font-medium mt-0.5">
+                              total
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rating Distribution Chart */}
+              <div className="mt-8 bg-gray-50 p-4 rounded-lg shadow-sm">
+                <h2 className="text-lg font-medium text-gray-800 mb-4">Rating Distribution</h2>
+                <div className="h-[400px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={questions.map(question => {
+                        const stats = calculateStats(question.id);
+                        return {
+                          name: question.text,
+                          Excellent: ((stats.ratings[4] || 0) / (stats.totalResponses || 1) * 100) || 0,
+                          Good: ((stats.ratings[3] || 0) / (stats.totalResponses || 1) * 100) || 0,
+                          Fair: ((stats.ratings[2] || 0) / (stats.totalResponses || 1) * 100) || 0,
+                          Poor: ((stats.ratings[1] || 0) / (stats.totalResponses || 1) * 100) || 0,
+                          totalResponses: stats.totalResponses,
+                        };
+                      })}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 100 }}
+                      barSize={20}
+                      layout="vertical"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" domain={[0, 100]} unit="%" />
+                      <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        width={200}
+                        tick={({ x, y, payload }) => (
+                          <text x={x} y={y} dy={4} textAnchor="end" fill="#666" fontSize={12}>
+                            {payload.value.length > 30 
+                              ? payload.value.substring(0, 30) + '...'
+                              : payload.value}
+                          </text>
+                        )}
+                      />
+                      <Tooltip
+                        formatter={(value, name) => [`${Number(value).toFixed(1)}%`, name]}
+                        cursor={{ fill: 'transparent' }}
+                        content={({ active, payload, label }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="bg-white p-3 shadow-lg rounded-lg border border-gray-200">
+                                <p className="font-medium text-gray-800 mb-2">{label}</p>
+                                {payload.map((entry, index) => (
+                                  <div key={index} className="flex items-center gap-2 text-sm">
+                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
+                                    <span className="font-medium">{entry.name}:</span>
+                                    <span>{Number(entry.value).toFixed(1)}%</span>
+                                  </div>
+                                ))}
+                                <div className="mt-2 pt-2 border-t text-sm text-gray-600">
+                                  Total Responses: {payload[0].payload.totalResponses}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Legend />
+                      <Bar dataKey="Excellent" fill="#22c55e" stackId="stack" />
+                      <Bar dataKey="Good" fill="#eab308" stackId="stack" />
+                      <Bar dataKey="Fair" fill="#f97316" stackId="stack" />
+                      <Bar dataKey="Poor" fill="#ef4444" stackId="stack" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Site-wise Statistics */}
+              {selectedSite === 'All Sites' && (
+                <div className="mt-8 pt-8 border-t border-gray-200">
+                  <h2 className="text-lg font-medium text-gray-800 mb-4">Site-wise Statistics</h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border rounded-lg overflow-hidden shadow-sm">
+                      <thead>
+                        <tr>
+                          <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b bg-gray-50">
+                            Site Location
+                          </th>
+                          {RATINGS.map(rating => (
+                            <th key={rating.level} className="px-2 py-2.5 text-center border-b bg-gray-50 min-w-[70px] sm:min-w-[80px]">
+                              <div className="flex flex-col items-center justify-center">
+                                <span className="text-lg sm:text-xl mb-0.5">{rating.emoji}</span>
+                                <span className="text-[10px] sm:text-xs font-medium text-gray-600">{rating.label}</span>
+                              </div>
+                            </th>
+                          ))}
+                          <th className="px-2 py-2.5 text-center border-b bg-blue-50/60">
+                            <div className="flex flex-col items-center">
+                              <span className="text-base sm:text-lg">📊</span>
+                              <span className="text-[10px] sm:text-xs font-medium text-blue-700">Average</span>
+                            </div>
+                          </th>
+                          <th className="px-2 py-2.5 text-center border-b bg-green-50/60">
+                            <div className="flex flex-col items-center">
+                              <span className="text-base sm:text-lg">📈</span>
+                              <span className="text-[10px] sm:text-xs font-medium text-green-700">Total</span>
+                            </div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {Object.values(calculateSiteStats()).map((site, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-3 sm:px-4 py-2.5 text-xs sm:text-sm text-gray-900 border-r font-medium">
+                              {site.name}
+                            </td>
+                            {[4, 3, 2, 1].map(level => (
+                              <td key={level} className="px-2 py-2.5 text-center border-r hover:bg-gray-50/50">
+                                <div className="flex flex-col items-center">
+                                  <div className="text-xs sm:text-sm font-semibold text-gray-700">
+                                    {site.totalResponses > 0 ? `${((site.ratings[level] / site.totalResponses) * 100).toFixed(1)}%` : '0%'}
+                                  </div>
+                                  <div className="text-[10px] sm:text-xs text-gray-500">
+                                    ({site.ratings[level] || 0})
+                                  </div>
+                                </div>
+                              </td>
+                            ))}
+                            <td className="px-2 py-2.5 text-center border-r bg-blue-50/60 hover:bg-blue-50">
+                              <div className={`text-xs sm:text-sm font-bold ${
+                                site.avgRating === 'N/A' ? 'text-gray-500' :
+                                parseFloat(site.avgRating.toString()) >= 3.5 ? 'text-green-600' :
+                                parseFloat(site.avgRating.toString()) >= 2.5 ? 'text-yellow-600' :
+                                parseFloat(site.avgRating.toString()) >= 1.5 ? 'text-orange-600' :
+                                'text-red-600'
+                              }`}>
+                                {site.avgRating}
+                              </div>
+                              <div className="text-[10px] sm:text-xs text-blue-600 font-medium mt-0.5">
+                                avg
+                              </div>
+                            </td>
+                            <td className="px-2 py-2.5 text-center border-r bg-green-50/60 hover:bg-green-50">
+                              <div className="text-xs sm:text-sm font-bold text-green-600">
+                                {site.totalResponses}
+                              </div>
+                              <div className="text-[10px] sm:text-xs text-green-600 font-medium mt-0.5">
+                                total
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center text-gray-500 py-8">
+              No questions available for {selectedSite === 'All Sites' ? 'any site' : selectedSite}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default FeedbackStatistics;
