@@ -1,0 +1,44 @@
+name: Build and Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Write version
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: echo "${GITHUB_SHA} $(date -u +'%Y-%m-%dT%H:%M:%SZ')" > dist/version.txt
+
+      - name: Prepare SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync to server
+        run: |
+          rsync -e "ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }}" -az --delete dist/ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.REMOTE_DIR_FRONTEND }}/"
+
+      - name: Reload nginx
+        run: ssh -i ~/.ssh/id_rsa -p "${{ secrets.SSH_PORT }}" -o StrictHostKeyChecking=yes "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" 'sudo systemctl reload nginx || sudo nginx -s reload'
