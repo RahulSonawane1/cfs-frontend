@@ -62,7 +62,7 @@ const UserSignup = () => {
     <div className="min-h-screen flex items-center justify-center py-12 bg-gradient-to-r from-primary-50 to-primary-100">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 space-y-6">
         <div className="text-center">
-          <img src="/images/clogo.png" alt="Catalyst Logo" className="h-16 mx-auto mb-4" />
+          <img src="https://catalystsolutions.eco/wp-content/uploads/2023/02/logo.png" alt="Catalyst Logo" className="h-16 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 mb-2">User Registration</h1>
         </div>
         <form onSubmit={handleSignup} className="space-y-6">
