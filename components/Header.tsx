@@ -8,7 +8,7 @@ const Header: React.FC = () => {
       <div className="container mx-auto flex items-center justify-center py-4">
         <div className="text-center">
           <img src="https://www.catalystsolutions.eco/" alt="Catalyst Logo" className="h-10 mx-auto mb-1" />
-          <h1 className="text-xl font-bold text-gray-900"> Canteen Feedback System</h1>
+          <h1 className="text-xl font-bold text-gray-900"> Canteen Feedback </h1>
         </div>
       </div>
     </header>
