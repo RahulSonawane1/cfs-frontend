@@ -58,7 +58,7 @@ const UserLogin: React.FC<UserLoginProps> = ({ onLogin }) => {
       <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-2xl" style={{ boxShadow: '0 8px 32px rgba(244,163,0,0.15)' }}>
         <div className="flex flex-col items-center justify-center mb-8">
           <div className="text-center mb-4">
-            <img src="/src/images/clogo.png" alt="Catalyst Logo" className="h-16 mx-auto mb-2" />
+            <img src="https://catalystsolutions.eco/wp-content/uploads/2023/02/logo.png" alt="Catalyst Logo" className="h-16 mx-auto mb-2" />
           </div>
         </div>
         <h2 className="text-2xl font-extrabold mb-8 text-center" style={{ color: '#f4a300', letterSpacing: '1px' }}>User Login</h2>
