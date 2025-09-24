@@ -139,7 +139,7 @@ const QRCodePrintPage: React.FC = () => {
               &times;
             </button>
             <div className="text-center mb-2">
-              <img src="/src/images/clogo.png" alt="Catalyst Logo" className="h-20 mx-auto mb-0.5" />
+              <img src="https://catalystsolutions.eco/wp-content/uploads/2023/02/logo.png" alt="Catalyst Logo" className="h-20 mx-auto mb-0.5" />
             </div>
             <div className="text-center mb-2">
               <span className="block text-lg font-bold text-white tracking-wide" style={{ letterSpacing: '2px' }}>
