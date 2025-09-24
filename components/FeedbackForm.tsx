@@ -20,7 +20,7 @@ const FeedbackForm: React.FC<FeedbackFormProps> = ({ jwt, site: propSite }) => {
   // Add logo at the top
   const renderLogo = () => (
     <div className="flex flex-col items-center justify-center mb-6">
-      <img src="/src/images/clogo.png" alt="Catalyst Logo" className="h-16 mb-2" />
+      <img src="https://catalystsolutions.eco/wp-content/uploads/2023/02/logo.png" alt="Catalyst Logo" className="h-16 mb-2" />
       <h2 className="text-xl font-semibold text-center text-gray-800">Canteen Feedback</h2>
     </div>
   );
