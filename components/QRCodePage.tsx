@@ -15,7 +15,7 @@ const QRCodePage: React.FC<QRCodePageProps> = ({ url, location, branchLocation }
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-white">
       <div className="text-center mb-4">
-        <img src="/src/images/clogo.png" alt="Catalyst Logo" className="h-16 mx-auto mb-4" />
+        <img src="https://catalystsolutions.eco/wp-content/uploads/2023/02/logo.png" alt="Catalyst Logo" className="h-16 mx-auto mb-4" />
       </div>
       <h2 className="text-2xl font-bold mb-4">Scan QR Code for Feedback</h2>
       {branchLocation && (
