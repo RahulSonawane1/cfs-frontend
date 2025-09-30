@@ -1,4 +1,5 @@
-export const API_URL = 'https://canteenfeedback-backend.onrender.com';
+//export const API_URL = 'https://canteenfeedback-backend.onrender.com';
+export const API_URL = 'http://72.60.99.97:3001';
 export const FRONTEND_URL = 'http://72.60.99.97:5173';
 
 // API endpoints
